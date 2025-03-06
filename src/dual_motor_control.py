@@ -47,8 +47,8 @@ def main():
         
         # 前進（50%スピード）
         print("前進")
-        controller.set_motor1(0.5)
-        controller.set_motor2(0.5)
+        controller.set_motor1(0.7)
+        controller.set_motor2(0.7)
         sleep(2)
         
         # 停止

@@ -1,2 +1,3 @@
 gpiozero
-RPi.GPIO 
+RPi.GPIO
+opencv-python-headless 

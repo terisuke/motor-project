@@ -44,3 +44,6 @@ env/
 .Trashes
 ehthumbs.db
 Thumbs.db 
+
+# recordings
+recordings/
