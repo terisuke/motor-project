@@ -80,14 +80,9 @@ class ImprovedIntegratedLaneFollower:
                 optimize_for=optimize_for
             )
             
-            # setup_cameraの戻り値がタプルの場合は最初の要素を取得
-            if isinstance(camera_result, tuple):
-                self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
-                print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
-                self.camera_settings = camera_result[1] if len(camera_result) > 1 else {}
-            else:
-                self.cap = camera_result
-                self.camera_settings = {}
+            # setup_cameraは常にタプル (cv2.VideoCapture, 設定dict) を返す
+            self.cap = camera_result[0]  # カメラオブジェクト
+            self.camera_settings = camera_result[1] if len(camera_result) > 1 else {}
             
             if not self.cap.isOpened():
                 raise RuntimeError("カメラを開けませんでした")
@@ -98,6 +93,8 @@ class ImprovedIntegratedLaneFollower:
             self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
+            
+            print(f"{optimize_for}モードでカメラ設定を適用しました")
         except Exception as e:
             print(f"カメラの初期化に失敗しました: {e}")
             self.system_status['camera'] = 'ERROR'
@@ -132,6 +129,7 @@ class ImprovedIntegratedLaneFollower:
         self.lane_change_timer = 0
         self.lane_change_direction = 'left'  # 'left' or 'right'
         self.acceleration_timer = 0
+        self.deceleration_timer = 0
         
         # 統計情報
         self.frame_count = 0
@@ -369,7 +367,7 @@ class ImprovedIntegratedLaneFollower:
         マーカーアクションに基づいて操作を実行（改良版）
         
         Parameters:
-        action (str): アクション ('stop', 'accelerate', 'lane_change', 'normal', 'none')
+        action (str): アクション ('stop', 'accelerate', 'decelerate', 'start', 'none')
         """
         if action == 'none':
             return
@@ -384,9 +382,32 @@ class ImprovedIntegratedLaneFollower:
                 
             elif action == 'accelerate':
                 # 加速（5秒間）
-                self.motor_controller.adjust_speed(1.5)  # 1.5倍速
+                # 加速率を上げる（1.5倍から2.0倍に）
+                speed_factor = 2.0  # より明確な速度変化のため
+                new_speed = self.motor_controller.base_speed * speed_factor
+                new_speed = max(0.0, min(1.0, new_speed))
+                
+                # 直接速度を設定（adjust_speedではなく）
+                current_steering = self.motor_controller.current_steering
+                self.motor_controller.set_motor_speeds(new_speed, current_steering)
+                self.motor_controller.current_speed = new_speed  # 現在の速度を更新
+                
                 self.acceleration_timer = time.time() + 5.0
-                print("アクション: 加速（5秒間）")
+                print(f"アクション: 加速（5秒間） - 速度: {new_speed:.2f}")
+                
+            elif action == 'decelerate':
+                # 減速（3秒間）
+                speed_factor = 0.5  # 明確な減速
+                new_speed = self.motor_controller.base_speed * speed_factor
+                new_speed = max(0.1, min(1.0, new_speed))  # 最低速度を確保
+                
+                # 直接速度を設定
+                current_steering = self.motor_controller.current_steering
+                self.motor_controller.set_motor_speeds(new_speed, current_steering)
+                self.motor_controller.current_speed = new_speed  # 現在の速度を更新
+                
+                self.deceleration_timer = time.time() + 3.0
+                print(f"アクション: 減速（3秒間） - 速度: {new_speed:.2f}")
                 
             elif action == 'lane_change':
                 # 車線変更
@@ -401,26 +422,48 @@ class ImprovedIntegratedLaneFollower:
                 self.lane_change_timer = time.time() + 2.0  # 2秒間は通常制御を一時停止
                 print(f"アクション: 車線変更（{self.lane_change_direction}）")
                 
+            elif action == 'start':
+                # 走行開始/再開
+                if not self.motor_controller.is_running:
+                    self.motor_controller.set_motor_speeds(self.motor_controller.base_speed, 0.0)
+                    self.motor_controller.current_speed = self.motor_controller.base_speed
+                    self.motor_controller.is_running = True
+                    print("アクション: 走行開始")
+                
             elif action == 'normal':
                 # 通常走行に戻る
                 if hasattr(self.motor_controller, 'base_speed'):
                     self.motor_controller.set_motor_speeds(self.motor_controller.base_speed, 0.0)
+                    self.motor_controller.current_speed = self.motor_controller.base_speed  # 現在の速度を更新
                 self.acceleration_timer = 0
+                self.deceleration_timer = 0
                 self.current_action = 'normal'
                 print("アクション: 通常走行")
     
     def update_timers(self):
-        """タイマーの更新処理（改良版）"""
+        """タイマーの更新と関連アクションの処理"""
         current_time = time.time()
         
-        # 加速タイマー
+        # 加速タイマーの確認
         if self.acceleration_timer > 0 and current_time > self.acceleration_timer:
+            # 通常速度に戻る
             if not self.no_motors and self.motor_controller_initialized:
-                self.motor_controller.adjust_speed(1.0)  # 元の速度に戻す
+                self.motor_controller.set_motor_speeds(self.motor_controller.base_speed, self.motor_controller.current_steering)
+                self.motor_controller.current_speed = self.motor_controller.base_speed  # 現在の速度を更新
             self.acceleration_timer = 0
             self.current_action = 'normal'
             print("加速終了: 通常速度に戻ります")
-                
+            
+        # 減速タイマーの確認
+        if hasattr(self, 'deceleration_timer') and self.deceleration_timer > 0 and current_time > self.deceleration_timer:
+            # 通常速度に戻る
+            if not self.no_motors and self.motor_controller_initialized:
+                self.motor_controller.set_motor_speeds(self.motor_controller.base_speed, self.motor_controller.current_steering)
+                self.motor_controller.current_speed = self.motor_controller.base_speed  # 現在の速度を更新
+            self.deceleration_timer = 0
+            self.current_action = 'normal'
+            print("減速終了: 通常速度に戻ります")
+        
         # 車線変更タイマー
         if self.lane_change_timer > 0 and current_time > self.lane_change_timer:
             self.lane_change_timer = 0
@@ -469,7 +512,7 @@ class ImprovedIntegratedLaneFollower:
             action_color = (0, 0, 255)  # 赤
         elif self.current_action == 'accelerate':
             action_color = (0, 255, 0)  # 緑
-        elif self.current_action == 'lane_change':
+        elif self.current_action == 'decelerate':
             action_color = (255, 0, 0)  # 青
             
         cv2.putText(result, f"アクション: {self.current_action}", 
@@ -523,8 +566,20 @@ class ImprovedIntegratedLaneFollower:
                 # モーター制御（有効かつ車線変更中でない場合）
                 if (not self.no_motors and self.motor_controller_initialized and 
                     self.lane_change_timer == 0 and self.current_action != 'stop'):
+                    # ここで明示的にステアリングを適用
                     center_offset = frame_data.get('center_offset', 0.0)
-                    self.motor_controller.steer(center_offset)
+                    steering = self.motor_controller.calculate_steering(center_offset)
+                    
+                    # 現在の速度を取得（加速/減速が適用されている場合を考慮）
+                    current_speed = self.motor_controller.current_speed
+                    if current_speed == 0:  # 速度が設定されていない場合
+                        current_speed = self.motor_controller.base_speed
+                    
+                    # 明示的にモーター速度とステアリングを設定
+                    self.motor_controller.set_motor_speeds(current_speed, steering)
+                    
+                    if self.debug:
+                        print(f"センターオフセット: {center_offset:.3f}, ステアリング: {steering:.3f}, 速度: {current_speed:.2f}")
                 
                 # 処理時間の計算
                 process_time = (time.time() - start_time) * 1000

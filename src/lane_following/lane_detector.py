@@ -19,14 +19,16 @@ class LaneDetector:
             print("外部カメラオブジェクトを使用します")
         else:
             # カメラの初期化
-            camera_result = setup_camera(camera_index)
-            
-            # setup_cameraの戻り値がタプルの場合は最初の要素を取得
-            if isinstance(camera_result, tuple):
+            try:
+                # setup_cameraは常にタプル (cv2.VideoCapture, 設定dict) を返す
+                camera_result = setup_camera(camera_index, optimize_for='lane_detection')
                 self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
-                print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
-            else:
-                self.cap = camera_result
+                self.camera_settings = camera_result[1] if len(camera_result) > 1 else {}
+                print("カメラ設定を適用しました")
+            except Exception as e:
+                print(f"カメラ設定エラー: {e}")
+                # エラー時は標準初期化を試みる
+                self.cap = cv2.VideoCapture(camera_index)
                 
             self.external_camera = False
             
@@ -38,28 +40,28 @@ class LaneDetector:
         self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
         # HSV色閾値の初期化
-        # 白レーン検出用
-        self.white_lower = np.array([0, 0, 200], dtype=np.uint8)
+        # 白レーン検出用 - 明るさの閾値を少し下げて環境適応性を高める
+        self.white_lower = np.array([0, 0, 180], dtype=np.uint8)
         self.white_upper = np.array([180, 30, 255], dtype=np.uint8)
         
-        # 黄色レーン検出用
-        self.yellow_lower = np.array([20, 100, 100], dtype=np.uint8)
+        # 黄色レーン検出用 - より狭い色域と高い彩度に設定して床と区別
+        self.yellow_lower = np.array([20, 120, 100], dtype=np.uint8)
         self.yellow_upper = np.array([30, 255, 255], dtype=np.uint8)
         
         # ハフ変換パラメータの設定
         self.rho = 1                # 解像度（ピクセル単位）
         self.theta = np.pi/180      # 角度解像度（ラジアン単位）
-        self.min_threshold = 20     # 最小投票数
-        self.min_line_length = 20   # 最小線分長
-        self.max_line_gap = 300     # 線分間の最大ギャップ
+        self.min_threshold = 30     # 最小投票数を増やす (20→30)
+        self.min_line_length = 30   # 最小線分長を増やす (20→30)
+        self.max_line_gap = 100     # 線分間の最大ギャップを減らす (300→100)
         
         # 関心領域（ROI）の設定
-        # 画像の下半分を関心領域とする
+        # 画像の下半分を関心領域とする（より狭い領域に設定）
         self.roi_vertices = np.array([
-            [0, self.frame_height],
-            [0, self.frame_height * 0.6],
-            [self.frame_width, self.frame_height * 0.6],
-            [self.frame_width, self.frame_height]
+            [int(self.frame_width * 0.3), self.frame_height],
+            [int(self.frame_width * 0.3), int(self.frame_height * 0.7)],
+            [int(self.frame_width * 0.7), int(self.frame_height * 0.7)],
+            [int(self.frame_width * 0.7), self.frame_height]
         ], dtype=np.int32)
         
         print(f"カメラ解像度: {self.frame_width}x{self.frame_height}")
@@ -121,15 +123,30 @@ class LaneDetector:
         # マスクを適用
         masked = cv2.bitwise_and(gray, combined_mask)
         
-        # エッジ検出（Canny）
-        edges = cv2.Canny(masked, 50, 150)
+        # エッジ検出（Cannyの閾値を調整）
+        edges = cv2.Canny(masked, 70, 140)  # 閾値を変更 (50, 150) → (70, 140)
         
         # 関心領域を適用
         roi_edges = self.apply_roi(edges)
         
-        # ハフ変換によるライン検出
+        # 黄色い床に対応するための追加処理
+        # 明るさによる判定（黄色のテープは通常床より明るい）
+        _, bright_areas = cv2.threshold(
+            gray, 
+            160,  # 明るさの閾値
+            255, 
+            cv2.THRESH_BINARY
+        )
+        
+        # 関心領域内の明るい部分のみを抽出
+        bright_roi = self.apply_roi(bright_areas)
+        
+        # エッジと明るい部分の組み合わせ
+        final_edges = cv2.bitwise_and(roi_edges, bright_roi)
+        
+        # ハフ変換によるライン検出（先に調整された新しいパラメータを使用）
         lines = cv2.HoughLinesP(
-            roi_edges,
+            final_edges,  # roi_edges から final_edges に変更
             self.rho,
             self.theta,
             self.min_threshold,

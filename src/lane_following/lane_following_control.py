@@ -77,10 +77,22 @@ class LaneFollowingController:
         self.current_speed = speed
         self.current_steering = steering
         
-        # モーターの速度を設定
+        # モーターの速度を設定（メインディレクトリのdual_motor_controlに合わせて修正）
         if not self.emergency_stop:
-            self.motor1.forward(left_speed)
-            self.motor2.forward(right_speed)
+            if left_speed > 0:
+                self.motor1.backward(left_speed)  # forwardからbackwardに変更
+            elif left_speed < 0:
+                self.motor1.forward(-left_speed)  # backwardからforwardに変更
+            else:
+                self.motor1.stop()
+                
+            if right_speed > 0:
+                self.motor2.backward(right_speed)  # forwardからbackwardに変更
+            elif right_speed < 0:
+                self.motor2.forward(-right_speed)  # backwardからforwardに変更
+            else:
+                self.motor2.stop()
+                
             self.is_running = speed > 0
     
     def steer(self, center_offset):
@@ -90,13 +102,19 @@ class LaneFollowingController:
         Parameters:
         center_offset (float): センターオフセット (-1.0 to 1.0)
         """
-        # ステアリング値を計算
+        # ステアリング値の計算
         steering = self.calculate_steering(center_offset)
         
-        # モーター速度を設定
-        self.set_motor_speeds(self.base_speed, steering)
+        # 現在の速度を取得（加速/減速が適用されている場合を考慮）
+        current_speed = self.current_speed
+        if current_speed == 0:  # 速度が設定されていない場合は基本速度を使用
+            current_speed = self.base_speed
         
-        return steering
+        # 現在のステアリング値を更新
+        self.current_steering = steering
+        
+        # モーター速度を設定
+        self.set_motor_speeds(current_speed, steering)
     
     def adjust_speed(self, speed_factor):
         """
@@ -107,6 +125,12 @@ class LaneFollowingController:
         """
         new_speed = self.base_speed * speed_factor
         new_speed = max(0.0, min(1.0, new_speed))
+        
+        # 速度変更をログに記録（デバッグ用）
+        print(f"速度調整: {self.current_speed:.2f} -> {new_speed:.2f} (係数: {speed_factor})")
+        
+        # 現在の速度を更新
+        self.current_speed = new_speed
         
         # ステアリングはそのままで速度のみ調整
         self.set_motor_speeds(new_speed, self.current_steering)

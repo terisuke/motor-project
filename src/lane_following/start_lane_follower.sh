@@ -1,146 +1,117 @@
 #!/bin/bash
 
-# レーン追従システム スタートアップスクリプト
-# 使用方法: ./start_lane_follower.sh [オプション]
+# レーン追従システム起動スクリプト
 
-# デフォルト設定
+# スクリプトが存在するディレクトリへ移動
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# 環境変数のセットアップ
+export PYTHONPATH="$SCRIPT_DIR/../..:$PYTHONPATH"
+
+# 仮想環境のPythonを直接指定
+PYTHON_PATH="/home/terisuke/develop/motor_project/env/bin/python3"
+
+# 引数の処理
 CAMERA=0
-NO_MOTORS=false
-SPEED=0.5
-MAX_STEERING=0.5
-STEERING_SENSITIVITY=1.0
-COLOR_MARKERS=false
-RECORD=false
-DEBUG=false
-LOG_DATA=false
-TEST_MODE=false
-HEADLESS=false
+DEBUG=""
+NO_MOTORS=""
+COLOR_MARKERS=""
+RECORD=""
+HEADLESS="--headless"  # デフォルトでヘッドレスモードを有効に
+HELP_MSG="""
+使用法: $0 [オプション]
 
-# コマンドライン引数の解析
-while [[ $# -gt 0 ]]; do
+オプション:
+  -c, --camera N      カメラインデックス番号 (デフォルト: 0)
+  -d, --debug         デバッグモードを有効化
+  -n, --no-motors     モーター制御を無効化（シミュレーションモード）
+  -m, --markers       カラーマーカー検出を有効化
+  -r, --record        映像録画を有効化
+  -g, --gui           GUIモードを有効化（デフォルトはヘッドレスモード）
+  -h, --help          このヘルプメッセージを表示
+"""
+
+while [ "$1" != "" ]; do
     case $1 in
-        --camera)
-            CAMERA="$2"
-            shift 2
-            ;;
-        --speed)
-            SPEED="$2"
-            shift 2
-            ;;
-        --max-steering)
-            MAX_STEERING="$2"
-            shift 2
-            ;;
-        --steering-sensitivity)
-            STEERING_SENSITIVITY="$2"
-            shift 2
-            ;;
-        --color-markers)
-            COLOR_MARKERS=true
+        -c | --camera)
             shift
+            CAMERA=$1
             ;;
-        --record)
-            RECORD=true
-            shift
+        -d | --debug)
+            DEBUG="--debug"
             ;;
-        --debug)
-            DEBUG=true
-            shift
+        -n | --no-motors)
+            NO_MOTORS="--no-motors"
             ;;
-        --log-data)
-            LOG_DATA=true
-            shift
+        -m | --markers)
+            COLOR_MARKERS="--color-markers"
             ;;
-        --headless)
-            HEADLESS=true
-            shift
+        -r | --record)
+            RECORD="--record"
             ;;
-        --test)
-            TEST_MODE=true
-            NO_MOTORS=true
-            DEBUG=true
-            shift
+        -g | --gui)
+            HEADLESS=""  # ヘッドレスモードを無効化
             ;;
-        --help)
-            echo "使用方法: ./start_lane_follower.sh [オプション]"
-            echo "オプション:"
-            echo "  --camera N              カメラデバイスのインデックス（デフォルト: 0）"
-            echo "  --speed N               基本速度 0-1（デフォルト: 0.5）"
-            echo "  --max-steering N        最大ステアリング量（デフォルト: 0.5）"
-            echo "  --steering-sensitivity N ステアリング感度（デフォルト: 1.0）"
-            echo "  --color-markers         カラーマーカー検出を有効化"
-            echo "  --record                走行映像の録画を有効化"
-            echo "  --debug                 デバッグ情報の表示"
-            echo "  --log-data              データログ記録を有効化"
-            echo "  --headless              ヘッドレスモード（GUI表示なし）"
-            echo "  --test                  テストモード（モーター無効、デバッグ有効）"
-            echo "  --help                  このヘルプメッセージを表示"
+        -h | --help)
+            echo "$HELP_MSG"
             exit 0
             ;;
         *)
             echo "不明なオプション: $1"
-            echo "ヘルプを表示するには: ./start_lane_follower.sh --help"
+            echo "$HELP_MSG"
             exit 1
             ;;
     esac
+    shift
 done
 
-# コマンドの構築
-CMD="python3 src/lane_following/improved_integrated_lane_follower.py"
-CMD="$CMD --camera $CAMERA"
+echo "レーン追従システムを起動します..."
+echo "カメラインデックス: $CAMERA"
+if [ "$DEBUG" != "" ]; then echo "デバッグモード: 有効"; fi
+if [ "$NO_MOTORS" != "" ]; then echo "モーター制御: 無効"; fi
+if [ "$COLOR_MARKERS" != "" ]; then echo "カラーマーカー検出: 有効"; fi
+if [ "$RECORD" != "" ]; then echo "録画: 有効"; fi
+if [ "$HEADLESS" != "" ]; then echo "ヘッドレスモード: 有効"; fi
 
-if [ "$NO_MOTORS" = true ]; then
-    CMD="$CMD --no-motors"
+# 依存関係の確認
+echo "依存関係を確認中..."
+REQUIRED_PACKAGES=("cv2" "numpy" "gpiozero")
+MISSING=0
+
+for pkg in "${REQUIRED_PACKAGES[@]}"; do
+    $PYTHON_PATH -c "import $pkg" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "エラー: Python パッケージ $pkg が見つかりません"
+        MISSING=1
+    fi
+done
+
+if [ $MISSING -eq 1 ]; then
+    echo "必要なパッケージが不足しています。以下のコマンドでインストールしてください:"
+    echo "pip install opencv-python numpy gpiozero"
+    exit 1
 fi
 
-CMD="$CMD --speed $SPEED"
-CMD="$CMD --max-steering $MAX_STEERING"
-CMD="$CMD --steering-sensitivity $STEERING_SENSITIVITY"
+# 改良版 or 標準版
+echo "改良版レーン追従システムを実行します..."
+$PYTHON_PATH "$SCRIPT_DIR/improved_integrated_lane_follower.py" \
+    --camera $CAMERA $DEBUG $NO_MOTORS $COLOR_MARKERS $RECORD $HEADLESS
 
-if [ "$COLOR_MARKERS" = true ]; then
-    CMD="$CMD --color-markers"
-fi
-
-if [ "$RECORD" = true ]; then
-    CMD="$CMD --record"
-fi
-
-if [ "$DEBUG" = true ]; then
-    CMD="$CMD --debug"
-fi
-
-if [ "$LOG_DATA" = true ]; then
-    CMD="$CMD --log-data"
-fi
-
-if [ "$HEADLESS" = true ]; then
-    CMD="$CMD --headless"
-fi
-
-# 設定情報の表示
-echo "====================================================="
-echo "           レーン追従システム スタートアップ          "
-echo "====================================================="
-echo "システム設定:"
-echo "- カメラ: $CAMERA"
-echo "- モーター: $([ "$NO_MOTORS" = true ] && echo "無効" || echo "有効")"
-echo "- 速度: $SPEED"
-echo "- 色マーカー検出: $([ "$COLOR_MARKERS" = true ] && echo "有効" || echo "無効")"
-echo "- デバッグモード: $([ "$DEBUG" = true ] && echo "有効" || echo "無効")"
-echo "- 録画: $([ "$RECORD" = true ] && echo "有効" || echo "無効")"
-echo "- データログ: $([ "$LOG_DATA" = true ] && echo "有効" || echo "無効")"
-echo "- ヘッドレスモード: $([ "$HEADLESS" = true ] && echo "有効" || echo "無効")"
-echo ""
-echo "実行コマンド: $CMD"
-echo ""
-echo "システムを開始します... (終了するには Ctrl+C)"
-echo "====================================================="
-
-# コマンドの実行
-$CMD
+# 終了コードの確認
 EXIT_CODE=$?
-
 if [ $EXIT_CODE -ne 0 ]; then
-    echo "システムはエラーコード $EXIT_CODE で終了しました。"
-    exit $EXIT_CODE
+    echo "エラー: レーン追従システムが終了コード $EXIT_CODE で終了しました"
+    
+    # 改良版が失敗した場合、標準版を試す
+    echo "標準版でリトライします..."
+    $PYTHON_PATH "$SCRIPT_DIR/integrated_lane_follower.py" \
+        --camera $CAMERA $DEBUG $NO_MOTORS $COLOR_MARKERS $RECORD $HEADLESS
+    
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -ne 0 ]; then
+        echo "エラー: 標準版も終了コード $EXIT_CODE で終了しました"
+    fi
 fi
+
+exit $EXIT_CODE

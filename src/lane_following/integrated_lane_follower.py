@@ -39,14 +39,22 @@ class IntegratedLaneFollower:
         self.debug = debug
         
         # カメラの初期化（一度だけ）
-        camera_result = setup_camera(camera_index)
-        
-        # setup_cameraの戻り値がタプルの場合は最初の要素を取得
-        if isinstance(camera_result, tuple):
-            self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
-            print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
-        else:
-            self.cap = camera_result
+        try:
+            # 最適化モードを選択
+            optimize_for = 'general'
+            if color_markers:
+                optimize_for = 'color_marker'
+            else:
+                optimize_for = 'lane_detection'
+                
+            camera_result = setup_camera(camera_index, optimize_for=optimize_for)
+            self.cap = camera_result[0]  # カメラオブジェクト
+            self.camera_settings = camera_result[1] if len(camera_result) > 1 else {}
+            print(f"{optimize_for}モードでカメラ設定を適用しました")
+        except Exception as e:
+            print(f"カメラ設定エラー: {e}")
+            # エラー時は標準初期化を試みる
+            self.cap = cv2.VideoCapture(camera_index)
         
         if not self.cap.isOpened():
             raise RuntimeError("カメラを開けませんでした")

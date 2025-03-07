@@ -13,8 +13,7 @@ def setup_camera(camera_index=0, optimize_for='lane_detection'):
     optimize_for (str): 最適化タイプ ('lane_detection', 'color_marker', 'general')
     
     Returns:
-    cv2.VideoCapture: 設定済みのカメラオブジェクト
-    dict: 適用された設定情報
+    tuple: (cv2.VideoCapture, dict) - 設定済みのカメラオブジェクトと適用された設定情報
     """
     # カメラの初期化
     cap = cv2.VideoCapture(camera_index)

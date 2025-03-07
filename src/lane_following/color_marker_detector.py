@@ -20,15 +20,16 @@ class ColorMarkerDetector:
             print("外部カメラオブジェクトを使用します")
         else:
             # カメラの初期化
-            camera_result = setup_camera(camera_index)
-            
-            # setup_cameraの戻り値がタプルの場合は最初の要素を取得
-            # 注意: 他のファイルでもsetup_camera関数を使用する場合は同様の処理が必要
-            if isinstance(camera_result, tuple):
+            try:
+                # setup_cameraは常にタプル (cv2.VideoCapture, 設定dict) を返す
+                camera_result = setup_camera(camera_index, optimize_for='color_marker')
                 self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
-                print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
-            else:
-                self.cap = camera_result
+                self.camera_settings = camera_result[1] if len(camera_result) > 1 else {}
+                print("カメラ設定を適用しました")
+            except Exception as e:
+                print(f"カメラ設定エラー: {e}")
+                # エラー時は標準初期化を試みる
+                self.cap = cv2.VideoCapture(camera_index)
             
             self.external_camera = False
             
@@ -80,9 +81,9 @@ class ColorMarkerDetector:
         self.yellow_lower = np.array([20, 100, 100], dtype=np.uint8)
         self.yellow_upper = np.array([40, 255, 255], dtype=np.uint8)
         
-        # 検出感度設定
-        self.min_area = 800  # 最小マーカー面積を増加（500→800）
-        self.detection_cooldown = 2.5  # 検出間のクールダウン時間を延長（1.0→2.5秒）
+        # 検出感度設定（環境によって調整が必要）
+        self.min_area = 500  # 最小マーカー面積（環境に合わせて調整）
+        self.detection_cooldown = 1.5  # 検出間のクールダウン時間（秒）
         self.last_detection_time = {}  # 最後の検出時間を色ごとに記録
         
         # 検出結果を初期化
