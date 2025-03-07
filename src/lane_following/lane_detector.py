@@ -4,25 +4,34 @@ import argparse
 import time
 from camera_utils import setup_camera
 class LaneDetector:
-    def __init__(self, camera_index=0):
+    def __init__(self, camera_index=0, external_camera=None):
         """
         レーン検出クラスの初期化
         
         Parameters:
         camera_index (int): カメラデバイスのインデックス
+        external_camera (cv2.VideoCapture, optional): 外部から渡されるカメラオブジェクト
         """
-        # カメラの初期化
-        camera_result = setup_camera(camera_index)
-        
-        # setup_cameraの戻り値がタプルの場合は最初の要素を取得
-        if isinstance(camera_result, tuple):
-            self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
-            print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
+        # 外部カメラが指定されている場合はそれを使用
+        if external_camera is not None:
+            self.cap = external_camera
+            self.external_camera = True
+            print("外部カメラオブジェクトを使用します")
         else:
-            self.cap = camera_result
+            # カメラの初期化
+            camera_result = setup_camera(camera_index)
             
-        if not self.cap.isOpened():
-            raise RuntimeError("カメラを開けませんでした")
+            # setup_cameraの戻り値がタプルの場合は最初の要素を取得
+            if isinstance(camera_result, tuple):
+                self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
+                print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
+            else:
+                self.cap = camera_result
+                
+            self.external_camera = False
+            
+            if not self.cap.isOpened():
+                raise RuntimeError("カメラを開けませんでした")
             
         # カメラパラメータの設定
         self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -77,16 +86,27 @@ class LaneDetector:
         masked_image = cv2.bitwise_and(image, mask)
         return masked_image
         
-    def detect_lane_lines(self, frame):
+    def detect_lane_lines(self, frame=None):
         """
         フレームからレーン線を検出する
         
         Parameters:
-        frame (numpy.ndarray): 入力フレーム
+        frame (numpy.ndarray, optional): 入力フレーム。Noneの場合はカメラから取得
         
         Returns:
         tuple: 左右のレーン線の情報（lines, left_lane, right_lane, lane_image）
         """
+        # フレームが指定されていない場合はカメラから取得
+        if frame is None:
+            if not self.external_camera:
+                ret, frame = self.cap.read()
+                if not ret:
+                    print("フレームの取得に失敗しました")
+                    return None, [], [], np.zeros_like(frame)
+            else:
+                print("外部カメラ使用時はフレームを指定してください")
+                return None, [], [], np.zeros((self.frame_height, self.frame_width, 3), dtype=np.uint8)
+        
         # グレースケールに変換
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
@@ -265,6 +285,10 @@ class LaneDetector:
         Returns:
         None
         """
+        if self.external_camera:
+            print("外部カメラ使用時はrun()メソッドは使用できません")
+            return
+            
         try:
             while True:
                 # フレームの取得
@@ -302,7 +326,8 @@ class LaneDetector:
                         break
                 
         finally:
-            self.cap.release()
+            if not self.external_camera:
+                self.cap.release()
             cv2.destroyAllWindows()
 
 def main():

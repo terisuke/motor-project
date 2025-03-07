@@ -38,7 +38,7 @@ class IntegratedLaneFollower:
         self.record = record
         self.debug = debug
         
-        # カメラの初期化
+        # カメラの初期化（一度だけ）
         camera_result = setup_camera(camera_index)
         
         # setup_cameraの戻り値がタプルの場合は最初の要素を取得
@@ -56,8 +56,8 @@ class IntegratedLaneFollower:
         self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
         
-        # レーン検出器の初期化
-        self.lane_detector = LaneDetector(camera_index=camera_index)
+        # レーン検出器の初期化（外部カメラを使用）
+        self.lane_detector = LaneDetector(external_camera=self.cap)
         
         # モーター制御の初期化（必要な場合）
         if not self.no_motors:
@@ -67,9 +67,9 @@ class IntegratedLaneFollower:
                 steering_sensitivity=steering_sensitivity
             )
             
-        # カラーマーカー検出器の初期化（必要な場合）
+        # カラーマーカー検出器の初期化（必要な場合、外部カメラを使用）
         if self.color_markers:
-            self.marker_detector = ColorMarkerDetector(camera_index=camera_index)
+            self.marker_detector = ColorMarkerDetector(external_camera=self.cap)
         
         # 録画の設定（必要な場合）
         self.video_writer = None

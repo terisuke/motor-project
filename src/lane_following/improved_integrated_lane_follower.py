@@ -14,14 +14,12 @@ from datetime import datetime
 import os
 import sys
 import signal
+from camera_utils import setup_camera  # enhanced_camera_utils から camera_utils に変更
 
-# 親ディレクトリをパスに追加してインポートできるようにする
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(os.path.dirname(current_dir))
-sys.path.append(parent_dir)
+# 自作モジュールのパスを追加
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 # 自作モジュールをインポート
-from src.lane_following.enhanced_camera_utils import setup_camera
 from src.lane_following.lane_detector import LaneDetector
 from src.lane_following.lane_following_control import LaneFollowingController
 from src.lane_following.color_marker_detector import ColorMarkerDetector
@@ -29,7 +27,7 @@ from src.lane_following.color_marker_detector import ColorMarkerDetector
 class ImprovedIntegratedLaneFollower:
     def __init__(self, camera_index=0, no_motors=False, base_speed=0.5, 
                  max_steering=0.5, steering_sensitivity=1.0, color_markers=False,
-                 record=False, debug=False, data_logging=False):
+                 record=False, debug=False, data_logging=False, headless=False):
         """
         改良版 - 統合レーン追従システムの初期化
         
@@ -43,6 +41,7 @@ class ImprovedIntegratedLaneFollower:
         record (bool): 走行映像の録画を有効化するかどうか
         debug (bool): デバッグ情報の表示を有効化するかどうか
         data_logging (bool): データログ記録を有効化するかどうか
+        headless (bool): ヘッドレスモード（GUI表示なし）
         """
         # 設定のコピー
         self.no_motors = no_motors
@@ -50,6 +49,16 @@ class ImprovedIntegratedLaneFollower:
         self.record = record
         self.debug = debug
         self.data_logging = data_logging
+        self.headless = headless
+        
+        # システム状態モニタリング（先に初期化）
+        self.system_status = {
+            'camera': 'OK',
+            'lane_detection': 'N/A',
+            'color_marker': 'N/A',
+            'motor_control': 'N/A',
+            'last_error': None
+        }
         
         # モジュール初期化フラグ
         self.camera_initialized = False
@@ -65,20 +74,35 @@ class ImprovedIntegratedLaneFollower:
         elif self.is_lane_detection_enabled() and not color_markers:
             optimize_for = 'lane_detection'
             
-        self.cap, self.camera_settings = setup_camera(
-            camera_index=camera_index,
-            optimize_for=optimize_for
-        )
-        
-        if not self.cap.isOpened():
-            raise RuntimeError("カメラを開けませんでした")
+        try:
+            camera_result = setup_camera(
+                camera_index=camera_index,
+                optimize_for=optimize_for
+            )
             
-        self.camera_initialized = True
+            # setup_cameraの戻り値がタプルの場合は最初の要素を取得
+            if isinstance(camera_result, tuple):
+                self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
+                print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
+                self.camera_settings = camera_result[1] if len(camera_result) > 1 else {}
+            else:
+                self.cap = camera_result
+                self.camera_settings = {}
             
-        # カメラパラメータの取得
-        self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
+            if not self.cap.isOpened():
+                raise RuntimeError("カメラを開けませんでした")
+                
+            self.camera_initialized = True
+                
+            # カメラパラメータの取得
+            self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
+        except Exception as e:
+            print(f"カメラの初期化に失敗しました: {e}")
+            self.system_status['camera'] = 'ERROR'
+            self.system_status['last_error'] = str(e)
+            raise
         
         # 安全な終了のためのシグナルハンドラ設定
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -116,15 +140,6 @@ class ImprovedIntegratedLaneFollower:
         self.last_frames = 0
         self.current_fps = 0
         
-        # システム状態モニタリング
-        self.system_status = {
-            'camera': 'OK',
-            'lane_detection': 'N/A',
-            'color_marker': 'N/A',
-            'motor_control': 'N/A',
-            'last_error': None
-        }
-        
         print("===== 改良版 - 統合レーン追従システム初期化完了 =====")
         print(f"カメラ解像度: {self.frame_width}x{self.frame_height}")
         print(f"モーター制御: {'無効' if self.no_motors else '有効'}")
@@ -132,6 +147,7 @@ class ImprovedIntegratedLaneFollower:
         print(f"録画: {'有効' if self.record else '無効'}")
         print(f"デバッグモード: {'有効' if self.debug else '無効'}")
         print(f"データログ: {'有効' if self.data_logging else '無効'}")
+        print(f"ヘッドレスモード: {'有効' if self.headless else '無効'}")
         print("====================================================")
     
     def is_lane_detection_enabled(self):
@@ -145,7 +161,8 @@ class ImprovedIntegratedLaneFollower:
         if self.is_lane_detection_enabled():
             try:
                 print("レーン検出器の初期化...")
-                self.lane_detector = LaneDetector(camera_index=None)  # カメラは既に初期化済み
+                # 外部カメラオブジェクトを渡す
+                self.lane_detector = LaneDetector(external_camera=self.cap)
                 self.lane_detector_initialized = True
                 self.system_status['lane_detection'] = 'OK'
             except Exception as e:
@@ -173,7 +190,8 @@ class ImprovedIntegratedLaneFollower:
         if self.color_markers:
             try:
                 print("カラーマーカー検出器の初期化...")
-                self.marker_detector = ColorMarkerDetector(camera_index=None)  # カメラは既に初期化済み
+                # 外部カメラオブジェクトを渡す
+                self.marker_detector = ColorMarkerDetector(external_camera=self.cap)
                 self.marker_detector_initialized = True
                 self.system_status['color_marker'] = 'OK'
             except Exception as e:
@@ -519,8 +537,9 @@ class ImprovedIntegratedLaneFollower:
                 if self.debug:
                     processed_frame = self.draw_debug_info(processed_frame, frame_data, process_time)
                 
-                # 結果の表示
-                cv2.imshow('Lane Following', processed_frame)
+                # 結果の表示（ヘッドレスモードでない場合）
+                if not self.headless:
+                    cv2.imshow('Lane Following', processed_frame)
                 
                 # データログ記録（有効な場合）
                 if self.data_logging:
@@ -530,8 +549,8 @@ class ImprovedIntegratedLaneFollower:
                 if self.record and self.video_writer is not None:
                     self.video_writer.write(processed_frame)
                 
-                # キー入力の処理
-                key = cv2.waitKey(1) & 0xFF
+                # キー入力の処理（ヘッドレスモードでない場合）
+                key = cv2.waitKey(1) & 0xFF if not self.headless else 0xFF
                 
                 if key == ord('q'):
                     # 'q'キーで終了
@@ -588,8 +607,9 @@ class ImprovedIntegratedLaneFollower:
             except Exception as e:
                 print(f"録画終了処理中にエラーが発生しました: {e}")
             
-        # ウィンドウの解放
-        cv2.destroyAllWindows()
+        # ウィンドウの解放（ヘッドレスモードでない場合）
+        if not self.headless:
+            cv2.destroyAllWindows()
         
         print("\nレーン追従システムを終了しました")
         
@@ -622,6 +642,8 @@ def main():
                         help='デバッグ情報の表示')
     parser.add_argument('--log-data', action='store_true',
                         help='データログ記録を有効化')
+    parser.add_argument('--headless', action='store_true',
+                        help='ヘッドレスモード（GUI表示なし）')
     
     args = parser.parse_args()
     
@@ -635,7 +657,8 @@ def main():
             color_markers=args.color_markers,
             record=args.record,
             debug=args.debug,
-            data_logging=args.log_data
+            data_logging=args.log_data,
+            headless=args.headless
         )
         
         follower.run()

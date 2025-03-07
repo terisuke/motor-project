@@ -5,49 +5,57 @@ import time
 from camera_utils import setup_camera
 
 class ColorMarkerDetector:
-    def __init__(self, camera_index=0):
+    def __init__(self, camera_index=0, external_camera=None):
         """
         色マーカー検出クラスの初期化
         
         Parameters:
         camera_index (int): カメラデバイスのインデックス
+        external_camera (cv2.VideoCapture, optional): 外部から渡されるカメラオブジェクト
         """
-        # カメラの初期化
-        # setup_camera関数がタプルを返すため、最初の要素（カメラオブジェクト）を取得
-        camera_result = setup_camera(camera_index)
-        
-        # setup_cameraの戻り値がタプルの場合は最初の要素を取得
-        # 注意: 他のファイルでもsetup_camera関数を使用する場合は同様の処理が必要
-        if isinstance(camera_result, tuple):
-            self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
-            print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
+        # 外部カメラが指定されている場合はそれを使用
+        if external_camera is not None:
+            self.cap = external_camera
+            self.external_camera = True
+            print("外部カメラオブジェクトを使用します")
         else:
-            self.cap = camera_result
-        
-        if not self.cap.isOpened():
-            raise RuntimeError("カメラを開けませんでした")
+            # カメラの初期化
+            camera_result = setup_camera(camera_index)
             
-        # カメラの色調整 - v4l2-ctlの出力に基づいて調整
-        try:
-            # 自動ホワイトバランスを無効化
-            self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+            # setup_cameraの戻り値がタプルの場合は最初の要素を取得
+            # 注意: 他のファイルでもsetup_camera関数を使用する場合は同様の処理が必要
+            if isinstance(camera_result, tuple):
+                self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
+                print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
+            else:
+                self.cap = camera_result
             
-            # ホワイトバランス温度を調整（5000は中間値、高くすると暖色系、低くすると寒色系）
-            self.cap.set(cv2.CAP_PROP_WB_TEMPERATURE, 5500)  # 少し暖かい色調に
+            self.external_camera = False
             
-            # 明るさを調整（-255〜255の範囲、デフォルト10）
-            self.cap.set(cv2.CAP_PROP_BRIGHTNESS, 20)  # 少し明るく
+            if not self.cap.isOpened():
+                raise RuntimeError("カメラを開けませんでした")
             
-            # 彩度を調整（0〜127の範囲、デフォルト36）
-            self.cap.set(cv2.CAP_PROP_SATURATION, 45)  # 少し彩度を上げる
-            
-            # コントラストを調整（0〜30の範囲、デフォルト15）
-            self.cap.set(cv2.CAP_PROP_CONTRAST, 18)  # 少しコントラストを上げる
-            
-            print("カメラパラメータを調整しました")
-        except Exception as e:
-            print(f"カメラパラメータの調整に失敗しました: {e}")
-            print("デフォルト設定で続行します")
+            # カメラの色調整 - v4l2-ctlの出力に基づいて調整
+            try:
+                # 自動ホワイトバランスを無効化
+                self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+                
+                # ホワイトバランス温度を調整（5000は中間値、高くすると暖色系、低くすると寒色系）
+                self.cap.set(cv2.CAP_PROP_WB_TEMPERATURE, 5500)  # 少し暖かい色調に
+                
+                # 明るさを調整（-255〜255の範囲、デフォルト10）
+                self.cap.set(cv2.CAP_PROP_BRIGHTNESS, 20)  # 少し明るく
+                
+                # 彩度を調整（0〜127の範囲、デフォルト36）
+                self.cap.set(cv2.CAP_PROP_SATURATION, 45)  # 少し彩度を上げる
+                
+                # コントラストを調整（0〜30の範囲、デフォルト15）
+                self.cap.set(cv2.CAP_PROP_CONTRAST, 18)  # 少しコントラストを上げる
+                
+                print("カメラパラメータを調整しました")
+            except Exception as e:
+                print(f"カメラパラメータの調整に失敗しました: {e}")
+                print("デフォルト設定で続行します")
             
         # カメラパラメータの設定
         self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -196,16 +204,38 @@ class ColorMarkerDetector:
         
         return (max_contour is not None and max_area > self.min_area), mask, max_contour, center
     
-    def detect_all_markers(self, frame):
+    def detect_all_markers(self, frame=None):
         """
         すべての色マーカーを検出
         
         Parameters:
-        frame (numpy.ndarray): 入力フレーム
+        frame (numpy.ndarray, optional): 入力フレーム。Noneの場合はカメラから取得
         
         Returns:
         dict: 検出結果（検出されたマーカーの情報を含む辞書）
         """
+        # フレームが指定されていない場合はカメラから取得
+        if frame is None:
+            if not self.external_camera:
+                ret, frame = self.cap.read()
+                if not ret:
+                    print("フレームの取得に失敗しました")
+                    return {}
+            else:
+                print("外部カメラ使用時はフレームを指定してください")
+                return {}
+                
+        # 関心領域（ROI）の設定
+        # 画面中央の1/3を検出対象とする
+        h, w = frame.shape[:2]
+        roi_x = w // 3
+        roi_y = h // 3
+        roi_w = w // 3
+        roi_h = h // 3
+        
+        # ROIを抽出
+        roi_frame = frame[roi_y:roi_y+roi_h, roi_x:roi_x+roi_w]
+        
         # 各マーカーの検出結果をリセット
         self.detected_markers = {
             'red': False,
@@ -214,14 +244,24 @@ class ColorMarkerDetector:
             'yellow': False
         }
         
-        # 各色マーカーを検出
-        red_result, red_mask, red_contour, red_center = self.detect_red_marker(frame)
+        # ROI内でマーカー検出
+        red_result, red_mask, red_contour, red_center = self.detect_red_marker(roi_frame)
         green_result, green_mask, green_contour, green_center = self.detect_color(
-            frame, self.green_lower, self.green_upper, 'green')
+            roi_frame, self.green_lower, self.green_upper, 'green')
         blue_result, blue_mask, blue_contour, blue_center = self.detect_color(
-            frame, self.blue_lower, self.blue_upper, 'blue')
+            roi_frame, self.blue_lower, self.blue_upper, 'blue')
         yellow_result, yellow_mask, yellow_contour, yellow_center = self.detect_color(
-            frame, self.yellow_lower, self.yellow_upper, 'yellow')
+            roi_frame, self.yellow_lower, self.yellow_upper, 'yellow')
+        
+        # 中心座標をROIから全体フレームの座標に変換
+        if red_center:
+            red_center = (red_center[0] + roi_x, red_center[1] + roi_y)
+        if green_center:
+            green_center = (green_center[0] + roi_x, green_center[1] + roi_y)
+        if blue_center:
+            blue_center = (blue_center[0] + roi_x, blue_center[1] + roi_y)
+        if yellow_center:
+            yellow_center = (yellow_center[0] + roi_x, yellow_center[1] + roi_y)
         
         # 検出結果を辞書にまとめる
         results = {
@@ -250,6 +290,9 @@ class ColorMarkerDetector:
                 'center': yellow_center
             }
         }
+        
+        # ROIを可視化
+        cv2.rectangle(frame, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), (255, 255, 255), 2)
         
         return results
     
@@ -340,6 +383,10 @@ class ColorMarkerDetector:
         Returns:
         None
         """
+        if self.external_camera:
+            print("外部カメラ使用時はrun()メソッドは使用できません")
+            return
+            
         try:
             while True:
                 # フレームの取得
@@ -380,7 +427,8 @@ class ColorMarkerDetector:
                         break
                 
         finally:
-            self.cap.release()
+            if not self.external_camera:
+                self.cap.release()
             cv2.destroyAllWindows()
 
 def main():
