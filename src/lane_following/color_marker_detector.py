@@ -73,16 +73,16 @@ class ColorMarkerDetector:
         self.green_upper = np.array([80, 255, 255], dtype=np.uint8)
         
         # 青色
-        self.blue_lower = np.array([100, 100, 100], dtype=np.uint8)
-        self.blue_upper = np.array([140, 255, 255], dtype=np.uint8)
+        self.blue_lower = np.array([110, 120, 120], dtype=np.uint8)
+        self.blue_upper = np.array([130, 255, 255], dtype=np.uint8)
         
         # 黄色
         self.yellow_lower = np.array([20, 100, 100], dtype=np.uint8)
         self.yellow_upper = np.array([40, 255, 255], dtype=np.uint8)
         
         # 検出感度設定
-        self.min_area = 500  # 最小マーカー面積
-        self.detection_cooldown = 1.0  # 検出間のクールダウン時間（秒）
+        self.min_area = 800  # 最小マーカー面積を増加（500→800）
+        self.detection_cooldown = 2.5  # 検出間のクールダウン時間を延長（1.0→2.5秒）
         self.last_detection_time = {}  # 最後の検出時間を色ごとに記録
         
         # 検出結果を初期化
@@ -107,7 +107,7 @@ class ColorMarkerDetector:
         color_name (str): 色の名前
         
         Returns:
-        tuple: (検出結果, マスク, 輪郭, 中心座標)
+        tuple: (検出結果, マスク, 輪郭, 中心座標, 中央からの距離)
         """
         # HSVに変換
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -123,33 +123,46 @@ class ColorMarkerDetector:
         # 輪郭検出
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # 最大の輪郭を検出
-        max_contour = None
-        max_area = 0
+        # フレームの中心を計算
+        h, w = frame.shape[:2]
+        frame_center_x = w // 2
+        frame_center_y = h // 2
+        
+        # 最も中央に近い輪郭を検出
+        best_contour = None
+        min_distance = float('inf')
+        best_area = 0
         center = None
         
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area > max_area and area > self.min_area:
-                max_area = area
-                max_contour = contour
+            if area > self.min_area:
+                # 輪郭の中心を計算
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    
+                    # 中央からの距離を計算
+                    distance = np.sqrt((cx - frame_center_x)**2 + (cy - frame_center_y)**2)
+                    
+                    # 中央に近く、十分な大きさがある輪郭を選択
+                    if distance < min_distance:
+                        min_distance = distance
+                        best_contour = contour
+                        best_area = area
+                        center = (cx, cy)
         
         # 検出されたマーカーの中心を計算
-        if max_contour is not None:
-            M = cv2.moments(max_contour)
-            if M["m00"] != 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                center = (cx, cy)
-                
-                # クールダウン時間を確認
-                current_time = time.time()
-                if color_name not in self.last_detection_time or \
-                   (current_time - self.last_detection_time.get(color_name, 0)) > self.detection_cooldown:
-                    self.detected_markers[color_name] = True
-                    self.last_detection_time[color_name] = current_time
+        if best_contour is not None:
+            # クールダウン時間を確認
+            current_time = time.time()
+            if color_name not in self.last_detection_time or \
+               (current_time - self.last_detection_time.get(color_name, 0)) > self.detection_cooldown:
+                self.detected_markers[color_name] = True
+                self.last_detection_time[color_name] = current_time
             
-        return (max_contour is not None and max_area > self.min_area), mask, max_contour, center
+        return (best_contour is not None and best_area > self.min_area), mask, best_contour, center, min_distance if best_contour is not None else float('inf')
     
     def detect_red_marker(self, frame):
         """
@@ -159,7 +172,7 @@ class ColorMarkerDetector:
         frame (numpy.ndarray): 入力フレーム
         
         Returns:
-        tuple: (検出結果, マスク, 輪郭, 中心座標)
+        tuple: (検出結果, マスク, 輪郭, 中心座標, 中央からの距離)
         """
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         
@@ -176,33 +189,46 @@ class ColorMarkerDetector:
         # 輪郭検出
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # 最大の輪郭を検出
-        max_contour = None
-        max_area = 0
+        # フレームの中心を計算
+        h, w = frame.shape[:2]
+        frame_center_x = w // 2
+        frame_center_y = h // 2
+        
+        # 最も中央に近い輪郭を検出
+        best_contour = None
+        min_distance = float('inf')
+        best_area = 0
         center = None
         
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area > max_area and area > self.min_area:
-                max_area = area
-                max_contour = contour
+            if area > self.min_area:
+                # 輪郭の中心を計算
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    
+                    # 中央からの距離を計算
+                    distance = np.sqrt((cx - frame_center_x)**2 + (cy - frame_center_y)**2)
+                    
+                    # 中央に近く、十分な大きさがある輪郭を選択
+                    if distance < min_distance:
+                        min_distance = distance
+                        best_contour = contour
+                        best_area = area
+                        center = (cx, cy)
         
         # 検出されたマーカーの中心を計算
-        if max_contour is not None:
-            M = cv2.moments(max_contour)
-            if M["m00"] != 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                center = (cx, cy)
-                
-                # クールダウン時間を確認
-                current_time = time.time()
-                if 'red' not in self.last_detection_time or \
-                   (current_time - self.last_detection_time.get('red', 0)) > self.detection_cooldown:
-                    self.detected_markers['red'] = True
-                    self.last_detection_time['red'] = current_time
+        if best_contour is not None:
+            # クールダウン時間を確認
+            current_time = time.time()
+            if 'red' not in self.last_detection_time or \
+               (current_time - self.last_detection_time.get('red', 0)) > self.detection_cooldown:
+                self.detected_markers['red'] = True
+                self.last_detection_time['red'] = current_time
         
-        return (max_contour is not None and max_area > self.min_area), mask, max_contour, center
+        return (best_contour is not None and best_area > self.min_area), mask, best_contour, center, min_distance if best_contour is not None else float('inf')
     
     def detect_all_markers(self, frame=None):
         """
@@ -226,12 +252,18 @@ class ColorMarkerDetector:
                 return {}
                 
         # 関心領域（ROI）の設定
-        # 画面中央の1/3を検出対象とする
+        # 画面中央のさらに小さい領域を検出対象とする（中央のマーカーのみを認識）
         h, w = frame.shape[:2]
-        roi_x = w // 3
-        roi_y = h // 3
-        roi_w = w // 3
-        roi_h = h // 3
+        
+        # 画面中央を計算
+        center_x = w // 2
+        center_y = h // 2
+        
+        # ROIを中央に集中させる
+        roi_w = w // 5  # 幅をさらに狭くする
+        roi_h = h // 5  # 高さをさらに狭くする
+        roi_x = center_x - (roi_w // 2)  # 中央に配置
+        roi_y = center_y - (roi_h // 2)  # 中央に配置
         
         # ROIを抽出
         roi_frame = frame[roi_y:roi_y+roi_h, roi_x:roi_x+roi_w]
@@ -245,12 +277,12 @@ class ColorMarkerDetector:
         }
         
         # ROI内でマーカー検出
-        red_result, red_mask, red_contour, red_center = self.detect_red_marker(roi_frame)
-        green_result, green_mask, green_contour, green_center = self.detect_color(
+        red_result, red_mask, red_contour, red_center, red_distance = self.detect_red_marker(roi_frame)
+        green_result, green_mask, green_contour, green_center, green_distance = self.detect_color(
             roi_frame, self.green_lower, self.green_upper, 'green')
-        blue_result, blue_mask, blue_contour, blue_center = self.detect_color(
+        blue_result, blue_mask, blue_contour, blue_center, blue_distance = self.detect_color(
             roi_frame, self.blue_lower, self.blue_upper, 'blue')
-        yellow_result, yellow_mask, yellow_contour, yellow_center = self.detect_color(
+        yellow_result, yellow_mask, yellow_contour, yellow_center, yellow_distance = self.detect_color(
             roi_frame, self.yellow_lower, self.yellow_upper, 'yellow')
         
         # 中心座標をROIから全体フレームの座標に変換
@@ -269,25 +301,29 @@ class ColorMarkerDetector:
                 'detected': red_result,
                 'mask': red_mask,
                 'contour': red_contour,
-                'center': red_center
+                'center': red_center,
+                'distance': red_distance
             },
             'green': {
                 'detected': green_result,
                 'mask': green_mask,
                 'contour': green_contour,
-                'center': green_center
+                'center': green_center,
+                'distance': green_distance
             },
             'blue': {
                 'detected': blue_result,
                 'mask': blue_mask,
                 'contour': blue_contour,
-                'center': blue_center
+                'center': blue_center,
+                'distance': blue_distance
             },
             'yellow': {
                 'detected': yellow_result,
                 'mask': yellow_mask,
                 'contour': yellow_contour,
-                'center': yellow_center
+                'center': yellow_center,
+                'distance': yellow_distance
             }
         }
         
@@ -301,27 +337,38 @@ class ColorMarkerDetector:
         検出されたマーカーに基づいてアクションを返す
         
         Returns:
-        str: アクション名（'stop', 'accelerate', 'lane_change', 'normal', 'none'）
+        str: アクション名（'stop', 'accelerate', 'decelerate', 'start', 'none'）
         """
-        # 赤：停止
+        # 赤：停止（最優先）
         if self.detected_markers['red']:
-            self.detected_markers['red'] = False  # 検出をリセット
+            # 他のすべてのマーカー検出をリセット
+            for color in self.detected_markers:
+                self.detected_markers[color] = False
+            print("赤色マーカーを検出: 停止")
             return 'stop'
         
         # 緑：加速
         if self.detected_markers['green']:
             self.detected_markers['green'] = False  # 検出をリセット
+            # 他のマーカー検出もリセット（競合を防ぐ）
+            self.detected_markers['blue'] = False
+            self.detected_markers['yellow'] = False
+            print("緑色マーカーを検出: 加速")
             return 'accelerate'
         
-        # 青：車線変更
-        if self.detected_markers['blue']:
-            self.detected_markers['blue'] = False  # 検出をリセット
-            return 'lane_change'
-        
-        # 黄：通常走行に戻る
+        # 黄：減速
         if self.detected_markers['yellow']:
             self.detected_markers['yellow'] = False  # 検出をリセット
-            return 'normal'
+            # 他のマーカー検出もリセット（競合を防ぐ）
+            self.detected_markers['blue'] = False
+            print("黄色マーカーを検出: 減速")
+            return 'decelerate'
+        
+        # 青：スタート
+        if self.detected_markers['blue']:
+            self.detected_markers['blue'] = False  # 検出をリセット
+            print("青色マーカーを検出: スタート")
+            return 'start'
         
         # 何も検出されなかった場合
         return 'none'
@@ -349,12 +396,20 @@ class ColorMarkerDetector:
         actions = {
             'red': '停止',
             'green': '加速',
-            'blue': '車線変更',
+            'blue': '減速',  # '車線変更'から'減速'に変更
             'yellow': '通常走行'
         }
         
         # 各マーカーを描画
         result_frame = frame.copy()
+        
+        # フレームの中心を描画
+        h, w = frame.shape[:2]
+        center_x = w // 2
+        center_y = h // 2
+        cv2.circle(result_frame, (center_x, center_y), 10, (255, 255, 255), 1)
+        cv2.line(result_frame, (center_x - 15, center_y), (center_x + 15, center_y), (255, 255, 255), 1)
+        cv2.line(result_frame, (center_x, center_y - 15), (center_x, center_y + 15), (255, 255, 255), 1)
         
         for color, color_results in results.items():
             if color_results['detected']:
@@ -364,6 +419,12 @@ class ColorMarkerDetector:
                 # 中心を描画
                 if color_results['center'] is not None:
                     cv2.circle(result_frame, color_results['center'], 5, colors[color], -1)
+                    
+                    # 中央からの距離を表示
+                    distance_text = f"距離: {color_results['distance']:.1f}"
+                    cv2.putText(result_frame, distance_text,
+                               (color_results['center'][0] - 50, color_results['center'][1] + 20),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, colors[color], 1)
                     
                     # アクションを表示
                     text = f"{color}: {actions[color]}"
