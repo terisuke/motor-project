@@ -15,7 +15,15 @@ def hsv_tuning(camera_index=0):
     camera_index (int): カメラデバイスのインデックス
     """
     # カメラの初期化
-    cap = setup_camera(camera_index)
+    camera_result = setup_camera(camera_index)
+    
+    # setup_cameraの戻り値がタプルの場合は最初の要素を取得
+    if isinstance(camera_result, tuple):
+        cap = camera_result[0]  # 最初の要素がカメラオブジェクト
+        print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
+    else:
+        cap = camera_result
+    
     if not cap.isOpened():
         print("カメラを開けませんでした。")
         return

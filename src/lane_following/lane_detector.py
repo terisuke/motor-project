@@ -12,7 +12,15 @@ class LaneDetector:
         camera_index (int): カメラデバイスのインデックス
         """
         # カメラの初期化
-        self.cap = setup_camera(camera_index)
+        camera_result = setup_camera(camera_index)
+        
+        # setup_cameraの戻り値がタプルの場合は最初の要素を取得
+        if isinstance(camera_result, tuple):
+            self.cap = camera_result[0]  # 最初の要素がカメラオブジェクト
+            print("setup_cameraからタプルを受け取りました。カメラオブジェクトを抽出します。")
+        else:
+            self.cap = camera_result
+            
         if not self.cap.isOpened():
             raise RuntimeError("カメラを開けませんでした")
             
