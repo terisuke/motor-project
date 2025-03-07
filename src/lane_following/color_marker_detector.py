@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import argparse
 import time
+from camera_utils import setup_camera
 
 class ColorMarkerDetector:
     def __init__(self, camera_index=0):
@@ -12,9 +13,31 @@ class ColorMarkerDetector:
         camera_index (int): カメラデバイスのインデックス
         """
         # カメラの初期化
-        self.cap = cv2.VideoCapture(camera_index)
+        self.cap = setup_camera(camera_index)
         if not self.cap.isOpened():
             raise RuntimeError("カメラを開けませんでした")
+            
+        # カメラの色調整 - v4l2-ctlの出力に基づいて調整
+        try:
+            # 自動ホワイトバランスを無効化
+            self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+            
+            # ホワイトバランス温度を調整（5000は中間値、高くすると暖色系、低くすると寒色系）
+            self.cap.set(cv2.CAP_PROP_WB_TEMPERATURE, 5500)  # 少し暖かい色調に
+            
+            # 明るさを調整（-255〜255の範囲、デフォルト10）
+            self.cap.set(cv2.CAP_PROP_BRIGHTNESS, 20)  # 少し明るく
+            
+            # 彩度を調整（0〜127の範囲、デフォルト36）
+            self.cap.set(cv2.CAP_PROP_SATURATION, 45)  # 少し彩度を上げる
+            
+            # コントラストを調整（0〜30の範囲、デフォルト15）
+            self.cap.set(cv2.CAP_PROP_CONTRAST, 18)  # 少しコントラストを上げる
+            
+            print("カメラパラメータを調整しました")
+        except Exception as e:
+            print(f"カメラパラメータの調整に失敗しました: {e}")
+            print("デフォルト設定で続行します")
             
         # カメラパラメータの設定
         self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))

@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import argparse
+from camera_utils import setup_camera
 
 def nothing(x):
     """スライダー用のダミー関数"""
@@ -14,7 +15,7 @@ def hsv_tuning(camera_index=0):
     camera_index (int): カメラデバイスのインデックス
     """
     # カメラの初期化
-    cap = cv2.VideoCapture(camera_index)
+    cap = setup_camera(camera_index)
     if not cap.isOpened():
         print("カメラを開けませんでした。")
         return

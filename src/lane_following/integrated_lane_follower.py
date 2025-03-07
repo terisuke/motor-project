@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime
 import os
 import sys
+from camera_utils import setup_camera
 
 # 自作モジュールのパスを追加
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -38,7 +39,7 @@ class IntegratedLaneFollower:
         self.debug = debug
         
         # カメラの初期化
-        self.cap = cv2.VideoCapture(camera_index)
+        self.cap = setup_camera(camera_index)
         if not self.cap.isOpened():
             raise RuntimeError("カメラを開けませんでした")
             

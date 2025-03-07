@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import argparse
 import time
-
+from camera_utils import setup_camera
 class LaneDetector:
     def __init__(self, camera_index=0):
         """
@@ -12,7 +12,7 @@ class LaneDetector:
         camera_index (int): カメラデバイスのインデックス
         """
         # カメラの初期化
-        self.cap = cv2.VideoCapture(camera_index)
+        self.cap = setup_camera(camera_index)
         if not self.cap.isOpened():
             raise RuntimeError("カメラを開けませんでした")
             
@@ -174,7 +174,7 @@ class LaneDetector:
         lane_center = (left_center + right_center) / 2
         
         # フレーム中心からのオフセットを計算し、-1.0～1.0の範囲に正規化
-        center_offset = (lane_center - frame_center) / (frame_width / 2)
+        center_offset = (lane_center - frame_center) / (self.frame_width / 2)
         
         # オフセットを-1.0～1.0の範囲に制限
         center_offset = max(-1.0, min(1.0, center_offset))
